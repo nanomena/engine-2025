@@ -59,7 +59,7 @@ class Player(Bot):
         Returns:
         Nothing.
         '''
-        #my_delta = terminal_state.deltas[active]  # your bankroll change from this round
+        my_delta = terminal_state.deltas[active]  # your bankroll change from this round
         previous_state = terminal_state.previous_state  # RoundState before payoffs
         #street = previous_state.street  # 0, 3, 4, or 5 representing when this round ended
         #my_cards = previous_state.hands[active]  # your cards
@@ -74,8 +74,10 @@ class Player(Bot):
 
         if my_bounty_hit:
             print("I hit my bounty of " + bounty_rank + "!")
+            print(my_delta >= 0)
         if opponent_bounty_hit:
             print("Opponent hit their bounty of " + opponent_bounty_rank + "!")
+            print(my_delta <= 0)
 
     def get_action(self, game_state, round_state, active):
         '''
