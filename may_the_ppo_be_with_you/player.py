@@ -9,6 +9,45 @@ from skeleton.runner import parse_args, run_bot
 
 import random
 
+from config import *
+import numpy as np
+
+import torch
+from models.network import SimpleNet
+
+NUM_PLAYERS = 2
+NUM_RANKS = 13
+NUM_SUITS = 4
+NUM_ACTIONS = 4
+NUM_CARDS = NUM_RANKS * NUM_SUITS
+NUM_PAIRS = NUM_CARDS * (NUM_CARDS + 1) // 2
+NUM_STREETS = 5
+
+suitNames = ['c', 'd', 'h', 's']
+cardNames = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A']
+
+
+
+def encode_card(card):
+    code = [0 for _ in range(NUM_RANKS + NUM_SUITS)]
+    code[cardNames.index(card[0])] = 1.
+    code[suitNames.index(card[1]) + NUM_RANKS] = 1.
+    return code
+
+def encode_rank(rank):
+    code = [0 for _ in range(NUM_RANKS + NUM_SUITS)]
+    code[rank] = 1.
+    return code
+
+def encode_suit(suit):
+    code = [0 for _ in range(NUM_RANKS + NUM_SUITS)]
+    code[suit + NUM_RANKS] = 1.
+    return code
+
+CHIP_LIST = [2.]
+while CHIP_LIST[-1] <= STARTING_STACK:
+    CHIP_LIST.append(np.ceil(CHIP_LIST[-1] * 1.25))
+CHIP_LIST[-1] = STARTING_STACK
 
 class Player(Bot):
     '''
@@ -25,7 +64,13 @@ class Player(Bot):
         Returns:
         Nothing.
         '''
-        pass
+
+        self.agent = SimpleNet()
+        state_dict = torch.load(f"models/model.pth", weights_only = False)
+        self.agent.load_state_dict(state_dict)
+
+        self.belief = torch.zeros((1, NUM_PLAYERS, NUM_SUITS, NUM_SUITS, NUM_RANKS, NUM_RANKS))
+        self.bounties_masks = torch.zeros((1, NUM_PLAYERS, NUM_RANKS))
 
     def handle_new_round(self, game_state, round_state, active):
         '''
@@ -39,13 +84,20 @@ class Player(Bot):
         Returns:
         Nothing.
         '''
-        #my_bankroll = game_state.bankroll  # the total number of chips you've gained or lost from the beginning of the game to the start of this round
-        #game_clock = game_state.game_clock  # the total number of seconds your bot has left to play this game
-        #round_num = game_state.round_num  # the round number from 1 to NUM_ROUNDS
-        #my_cards = round_state.hands[active]  # your cards
-        #big_blind = bool(active)  # True if you are the big blind
-        #my_bounty = round_state.bounties[active]  # your current bounty rank
-        pass
+        my_bankroll = game_state.bankroll  # the total number of chips you've gained or lost from the beginning of the game to the start of this round
+        game_clock = game_state.game_clock  # the total number of seconds your bot has left to play this game
+        round_num = game_state.round_num  # the round number from 1 to NUM_ROUNDS
+        my_cards = round_state.hands[active]  # your cards
+        big_blind = bool(active)  # True if you are the big blind
+        my_bounty = round_state.bounties[active]  # your current bounty rank
+
+        if round_num % ROUNDS_PER_BOUNTY == 1:
+            self.bounties_masks[0] = 0.
+        else:
+            # swap role
+            self.bounties_masks[0] = self.bounties_masks[0, [1, 0]]
+
+        self.belief[0] = 1.
 
     def handle_round_over(self, game_state, terminal_state, active):
         '''
@@ -105,16 +157,22 @@ class Player(Bot):
         my_contribution = STARTING_STACK - my_stack  # the number of chips you have contributed to the pot
         opp_contribution = STARTING_STACK - opp_stack  # the number of chips your opponent has contributed to the pot
 
-        def traceback(round_state):
-            if round_state.previous_state != None and round_state.button % 2 != active:
-                traceback(round_state.previous_state)
-            print(round_state)
+        def traceback(round_state, action):
+            if round_state.previous_state != None and (round_state.button % 2 != active or action is None):
+                traceback(round_state.previous_state, round_state.previous_action)
+                if action is not None:
+                    print(round_state)
+                    print(f"Action: {str(action)}")
 
-        if round_state.previous_state != None:
-            print("Tracing back ... ")
-            traceback(round_state.previous_state)
-            print("Traceback done!")
-            print(round_state)
+        print("Tracing back ... ")
+        print("".join(["#" for _ in range(25)]))
+        if round_state.previous_state is not None:
+            traceback(round_state.previous_state, round_state.previous_action)
+        print("".join(["#" for _ in range(25)]))
+        print("Traceback done!")
+        print("")
+        print("Time to decide ...")
+        print(round_state)
         
         if RaiseAction in legal_actions:
            min_raise, max_raise = round_state.raise_bounds()  # the smallest and largest numbers of chips for a legal bet/raise

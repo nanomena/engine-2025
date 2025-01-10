@@ -13,7 +13,37 @@ BIG_BLIND = 2
 SMALL_BLIND = 1
 
 
-class RoundState(namedtuple('_RoundState', ['button', 'street', 'pips', 'stacks', 'hands', 'bounties', 'deck', 'previous_state'])):
+from dataclasses import dataclass, field
+
+
+@dataclass
+class _RoundState:
+    button: int
+    street: int
+    pips: list
+    stacks: list
+    hands: list
+    bounties: list
+    deck: list
+    previous_state: 'RoundState'  # Type hinting for a recursive data structure
+    previous_action: any = field(default = None)
+
+    def __str__(self):
+        hands_str = ', '.join(f"Player {idx + 1}: {''.join(hand) if hand else 'Empty'}" for idx, hand in enumerate(self.hands))
+        pips_str = ', '.join(f"Player {idx + 1}: {pip}" for idx, pip in enumerate(self.pips))
+        stacks_str = ', '.join(f"Player {idx + 1}: {stack}" for idx, stack in enumerate(self.stacks))
+        previous_state_str = "Present" if self.previous_state else "None"
+
+        return (f"RoundState(Button Position: {self.button}, Street: {self.street},\n"
+                f"  Pips: [{pips_str}],\n"
+                f"  Stacks: [{stacks_str}],\n"
+                f"  Hands: [{hands_str}],\n"
+                f"  Bounties: {self.bounties},\n"
+                f"  Deck: {[''.join(card) for card in self.deck] if self.deck else 'Empty'},\n"
+                f"  Previous State: {previous_state_str},\n"
+                f"  Previous Action: {type(self.previous_action).__name__ if self.previous_action else 'None'}\n)")
+
+class RoundState(_RoundState):
     '''
     Encodes the game tree for one round of poker.
     '''
@@ -86,24 +116,25 @@ class RoundState(namedtuple('_RoundState', ['button', 'street', 'pips', 'stacks'
             return TerminalState([delta, -delta], self.get_bounty_hits(), self)
         if isinstance(action, CallAction):
             if self.button == 0:  # sb calls bb
-                return RoundState(1, 0, [BIG_BLIND] * 2, [STARTING_STACK - BIG_BLIND] * 2, self.hands, self.bounties, self.deck, self)
+                return RoundState(1, 0, [BIG_BLIND] * 2, [STARTING_STACK - BIG_BLIND] * 2, self.hands, self.bounties, self.deck, self, action)
             # both players acted
             new_pips = list(self.pips)
             new_stacks = list(self.stacks)
             contribution = new_pips[1-active] - new_pips[active]
             new_stacks[active] -= contribution
             new_pips[active] += contribution
-            state = RoundState(self.button + 1, self.street, new_pips, new_stacks, self.hands, self.bounties, self.deck, self)
+            state = RoundState(self.button + 1, self.street, new_pips, new_stacks, self.hands, self.bounties, self.deck, self, action)
             return state.proceed_street()
         if isinstance(action, CheckAction):
             if (self.street == 0 and self.button > 0) or self.button > 1:  # both players acted
-                return self.proceed_street()
+                state = RoundState(self.button + 1, self.street, self.pips, self.stacks, self.hands, self.bounties, self.deck, self, action)
+                return state.proceed_street()
             # let opponent act
-            return RoundState(self.button + 1, self.street, self.pips, self.stacks, self.hands, self.bounties, self.deck, self)
+            return RoundState(self.button + 1, self.street, self.pips, self.stacks, self.hands, self.bounties, self.deck, self, action)
         # isinstance(action, RaiseAction)
         new_pips = list(self.pips)
         new_stacks = list(self.stacks)
         contribution = action.amount - new_pips[active]
         new_stacks[active] -= contribution
         new_pips[active] += contribution
-        return RoundState(self.button + 1, self.street, new_pips, new_stacks, self.hands, self.bounties, self.deck, self)
+        return RoundState(self.button + 1, self.street, new_pips, new_stacks, self.hands, self.bounties, self.deck, self, action)
