@@ -114,28 +114,44 @@ def encode_chips(chips, big_blind = 2, max_stack = 400, log_bin_step = 1.5):
 
 
 def print_poker_beliefs(belief):
-    tensor = torch.zeros((13, 13), device = belief.device)
-    cnt = torch.zeros((13, 13), device = belief.device)
-    for s0 in range(4):
-        for s1 in range(4):
-            for r0 in range(13):
-                for r1 in range(13):
-                    if s0 != s1:
-                        if r0 < r1:
-                            continue
-                        tensor[r0, r1] += belief[s0, s1, r0, r1]
-                        cnt[r0, r1] += 1
-                    else:
-                        if r0 >= r1:
-                            continue
-                        tensor[r0, r1] += belief[s0, s1, r0, r1]
-                        cnt[r0, r1] += 1
+    device = belief.device
+    tensor = torch.zeros((13, 13), device=device)
+    cnt = torch.zeros((13, 13), device=device)
 
-    tensor /= cnt
-    tensor = tensor.detach().cpu().numpy()
+    # Create indices for all possible combinations
+    suits = torch.arange(4, device=device)
+    ranks = torch.arange(13, device=device)
+
+    s0, s1 = torch.meshgrid(suits, suits, indexing='ij')
+    r0, r1 = torch.meshgrid(ranks, ranks, indexing='ij')
+
+    # Different suits case (r0 >= r1)
+    diff_suits_mask = (s0 != s1).unsqueeze(-1).unsqueeze(-1)
+    valid_ranks_diff = (r0.unsqueeze(0).unsqueeze(0) >= r1.unsqueeze(0).unsqueeze(0))
+
+    # Same suits case (r0 < r1)
+    same_suits_mask = (s0 == s1).unsqueeze(-1).unsqueeze(-1)
+    valid_ranks_same = (r0.unsqueeze(0).unsqueeze(0) < r1.unsqueeze(0).unsqueeze(0))
+
+    # Combine masks
+    mask = (diff_suits_mask & valid_ranks_diff) | (same_suits_mask & valid_ranks_same)
+
+    # Sum valid beliefs and counts
+    tensor = torch.sum(
+        belief.reshape(4, 4, 13, 13) * mask,
+        dim=(0, 1)
+    )
+    cnt = torch.sum(mask, dim=(0, 1))
+
+    # Normalize and convert to numpy
+    tensor = (tensor / cnt).detach().cpu().numpy()
+
+    # Print formatted output
     for i, row in enumerate(tensor):
         formatted_row = " ".join(f"{value:5.2f}" for value in row)
         print(formatted_row)
+
+    return tensor
 
 class Player(Bot):
     '''
@@ -154,7 +170,7 @@ class Player(Bot):
         '''
 
         self.agent = SimpleNet()
-        state_dict = torch.load(f"models/baseline_4500.pth", weights_only = False)
+        state_dict = torch.load(f"models/baseline.pth", weights_only = False)
         self.agent.load_state_dict(state_dict)
 
         self.num_envs = 1
@@ -438,8 +454,9 @@ class Player(Bot):
                             action_tensor = torch.tensor([action])
                             _, _, _, _, action_probs, _ = self.agent.get_logits_value(current_players, obs, legal_action_tensor, action_tensor)
                             self.belief[i, active] *= action_probs[i, :, :, :, :, action]
+                            self.belief[i, active] /= self.belief[i, active].max()
 
-                        print(f"action {action}, raise target {raise_target}")
+                    print(f"action {action}, raise target {raise_target}")
                     self.raise_target[i] = 0
 
     def get_action(self, game_state, round_state, active):
@@ -485,18 +502,30 @@ class Player(Bot):
         my_contribution = STARTING_STACK - my_stack  # the number of chips you have contributed to the pot
         opp_contribution = STARTING_STACK - opp_stack  # the number of chips your opponent has contributed to the pot
 
-        if game_state.round_num < 100:
-            print("My range:")
-            print_poker_beliefs(self.belief[0, active])
-            print("Opponent range:")
-            print_poker_beliefs(self.belief[0, 1-active])
         for i in range(self.num_envs):
             agent_action = None
             while agent_action is None:
                 with torch.no_grad():
                     obs, current_players, legal_action_tensor = self.get_obs_tensor()
                     action, _, _, _, action_probs, _ = self.agent.get_logits_value(current_players, obs, legal_action_tensor)
+
+                    if game_state.round_num < 100:
+                        print("My range:")
+                        print_poker_beliefs(self.belief[0, active])
+                        print("Opponent range:")
+                        print_poker_beliefs(self.belief[0, 1 - active])
+                        print("Fold:")
+                        print_poker_beliefs(action_probs[0, :, :, :, :, 0])
+                        print("Check:")
+                        print_poker_beliefs(action_probs[0, :, :, :, :, 1])
+                        print("Call:")
+                        print_poker_beliefs(action_probs[0, :, :, :, :, 2])
+                        print("Raise:")
+                        print_poker_beliefs(action_probs[0, :, :, :, :, 3])
+
                     self.belief[i, active] *= action_probs[i, :, :, :, :, action[i]]
+                    self.belief[i, active] /= self.belief[i, active].max()
+
 
                 if action == 0:  # Fold
                     agent_action = FoldAction()
@@ -529,7 +558,7 @@ class Player(Bot):
                         # "Stack" the raise
                         self.raise_target[i] = raise_max
 
-                print(f"abstract action {action.item()}")
+        print(f"final decision {agent_action}")
         return agent_action
 
 
