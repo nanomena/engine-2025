@@ -4,15 +4,14 @@ Simple pokerbot, written in Python.
 from typing import List, Optional
 
 from skeleton.actions import FoldAction, CallAction, CheckAction, RaiseAction
-from skeleton.states import GameState, TerminalState, RoundState
-from skeleton.states import NUM_ROUNDS, STARTING_STACK, BIG_BLIND, SMALL_BLIND
+from skeleton.states import TerminalState, RoundState
+from skeleton.states import NUM_ROUNDS, STARTING_STACK
 from skeleton.bot import Bot
 from skeleton.runner import parse_args, run_bot
 
 import math
-import random
 
-from config import *
+from skeleton.config import *
 import numpy as np
 
 import torch
@@ -33,8 +32,8 @@ cardNames = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A']
 
 def encode_card(card):
     code = [0 for _ in range(NUM_RANKS + NUM_SUITS)]
-    code[cardNames.index(card[0])] = 1.
-    code[suitNames.index(card[1]) + NUM_RANKS] = 1.
+    code[card.rank] = 1.
+    code[card.suit + NUM_RANKS] = 1.
     return code
 
 def encode_rank(rank):
@@ -207,12 +206,7 @@ class Player(Bot):
             # opponent's hand
             return -1, -1, -1, -1
 
-        r0 = cardNames.index(round_state.hands[active][0][0])
-        s0 = suitNames.index(round_state.hands[active][0][1])
-        r1 = cardNames.index(round_state.hands[active][1][0])
-        s1 = suitNames.index(round_state.hands[active][1][1])
-        return s0, s1, r0, r1
-        # return round_state.hands[active][0].suit, round_state.hands[active][1].suit, round_state.hands[active][0].rank, round_state.hands[active][1].rank
+        return round_state.hands[active][0].suit, round_state.hands[active][1].suit, round_state.hands[active][0].rank, round_state.hands[active][1].rank
 
     def get_bounty_obs(self, env_id):
         round_state = self.states[env_id]
@@ -368,7 +362,7 @@ class Player(Bot):
         #street = previous_state.street  # 0, 3, 4, or 5 representing when this round ended
         #my_cards = previous_state.hands[active]  # your cards
         #opp_cards = previous_state.hands[1-active]  # opponent's cards or [] if not revealed
-        
+
         my_bounty_hit = terminal_state.bounty_hits[active]  # True if you hit bounty
         opponent_bounty_hit = terminal_state.bounty_hits[1-active] # True if opponent hit bounty
         bounty_rank = previous_state.bounties[active]  # your bounty rank
@@ -382,23 +376,21 @@ class Player(Bot):
                 if not bounty_hits:
                     # Zero out certain ranks
                     mask1 = np.zeros(NUM_RANKS, dtype = bool)
-                    if previous_state.street > 0:
-                        for card in previous_state.deck[:previous_state.street]:
-                            mask1[cardNames.index(card[0])] = True
+                    for card in previous_state.deck[:previous_state.street]:
+                        mask1[card.rank] = True
                     if FoldAction not in previous_state.legal_actions():
                         # That means we actually showed our cards?
-                        mask1[cardNames.index(previous_state.hands[player_id][0][0])] = True
-                        mask1[cardNames.index(previous_state.hands[player_id][1][0])] = True
+                        mask1[previous_state.hands[player_id][0].rank] = True
+                        mask1[previous_state.hands[player_id][1].rank] = True
                     self.bounties_masks[0, player_id, mask1] = 0.
                 else:
                     # partial reveal logic
                     if FoldAction not in previous_state.legal_actions():
                         mask1 = np.zeros(NUM_RANKS, dtype = bool)
-                        if previous_state.street > 0:
-                            for card in previous_state.deck[:previous_state.street]:
-                                mask1[cardNames.index(card[0])] = True
-                        mask1[cardNames.index(previous_state.hands[player_id][0][0])] = True
-                        mask1[cardNames.index(previous_state.hands[player_id][1][0])] = True
+                        for card in previous_state.deck[:previous_state.street]:
+                            mask1[card.rank] = True
+                        mask1[previous_state.hands[player_id][0].rank] = True
+                        mask1[previous_state.hands[player_id][1].rank] = True
                         # keep only these ranks => zero out others
                         self.bounties_masks[0, player_id, ~mask1] = 0.
 

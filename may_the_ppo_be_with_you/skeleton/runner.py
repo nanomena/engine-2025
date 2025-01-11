@@ -7,6 +7,7 @@ from .actions import FoldAction, CallAction, CheckAction, RaiseAction
 from .states import GameState, TerminalState, RoundState
 from .states import STARTING_STACK, BIG_BLIND, SMALL_BLIND
 from .bot import Bot
+import eval7
 
 
 class Runner():
@@ -60,7 +61,7 @@ class Runner():
                 elif clause[0] == 'H':
                     hands = [[], []]
 
-                    hands[active] = clause[1:].split(',')
+                    hands[active] = [eval7.Card(c) for c in clause[1:].split(',')]
                     pips = [SMALL_BLIND, BIG_BLIND]
                     stacks = [STARTING_STACK - SMALL_BLIND, STARTING_STACK - BIG_BLIND]
                     round_state = RoundState(0, 0, pips, stacks, hands, None, [], None)
@@ -81,13 +82,14 @@ class Runner():
                 elif clause[0] == 'R':
                     round_state = round_state.proceed(RaiseAction(int(float(clause[1:]))))
                 elif clause[0] == 'B':
+                    board = [eval7.Card(c) for c in clause[1:].split(',')]
                     round_state = RoundState(round_state.button, round_state.street, round_state.pips, round_state.stacks,
-                                             round_state.hands, round_state.bounties, clause[1:].split(','), round_state.previous_state)
+                                             round_state.hands, round_state.bounties, board, round_state.previous_state)
                 elif clause[0] == 'O':
                     # backtrack
                     round_state = round_state.previous_state
                     revised_hands = list(round_state.hands)
-                    revised_hands[1-active] = clause[1:].split(',')
+                    revised_hands[1-active] = [eval7.Card(c) for c in clause[1:].split(',')]
                     # rebuild history
                     round_state = RoundState(round_state.button, round_state.street, round_state.pips, round_state.stacks,
                                              revised_hands, round_state.bounties, round_state.deck, round_state.previous_state)
