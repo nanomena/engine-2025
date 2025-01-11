@@ -3,8 +3,6 @@ Simple pokerbot, written in Python.
 '''
 from typing import List, Optional
 
-from mypy.state import state
-
 from skeleton.actions import FoldAction, CallAction, CheckAction, RaiseAction
 from skeleton.states import GameState, TerminalState, RoundState
 from skeleton.states import NUM_ROUNDS, STARTING_STACK, BIG_BLIND, SMALL_BLIND

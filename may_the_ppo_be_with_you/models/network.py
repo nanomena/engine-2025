@@ -3,8 +3,6 @@ import torch.nn as nn
 import numpy as np
 import torch.nn.functional as F
 
-torch.set_num_threads(1)
-
 def layer_init(layer, std = np.sqrt(2), bias_const = 0.0):
     """Simple orthogonal initialization helper for layers."""
     nn.init.orthogonal_(layer.weight, std)
@@ -271,6 +269,7 @@ class SimpleNet(nn.Module):
             actor_probs[mask] = probs
             critic_values[mask] = value
 
+        hand = hand.long()
         dist_probs = actor_probs[
             torch.arange(belief.shape[0], device = belief.device),
             hand[:, 0], hand[:, 1], hand[:, 2], hand[:, 3]
