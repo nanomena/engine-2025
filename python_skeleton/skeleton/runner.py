@@ -99,6 +99,7 @@ class Runner():
                     deltas[active] = delta
                     round_state = TerminalState(deltas, None, round_state.previous_state)
                     game_state = GameState(game_state.bankroll + delta, game_state.game_clock, game_state.round_num)
+                    print(f"Game clock {game_state.game_clock}")
                 elif clause[0] == 'Y':
                     assert isinstance(round_state, TerminalState)
                     hero_hit_bounty, opponent_hit_bounty = (clause[1] == '1'), (clause[2] == '1')

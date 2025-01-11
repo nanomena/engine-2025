@@ -3,6 +3,7 @@ import torch.nn as nn
 import numpy as np
 import torch.nn.functional as F
 
+torch.set_num_threads(1)
 
 def layer_init(layer, std = np.sqrt(2), bias_const = 0.0):
     """Simple orthogonal initialization helper for layers."""
@@ -19,9 +20,9 @@ class SimpleNet(nn.Module):
             card_obs_channels: int = 8,
             card_feature_dim: int = 17,  # 13 ranks + 4 suits
             chip_encodings: int = 5,
-            embedding_dim: int = 32,
-            fuse_hidden_dim: int = 256,
-            num_features: int = 16,
+            embedding_dim: int = 24,
+            fuse_hidden_dim: int = 128,
+            num_features: int = 10,
             num_suits: int = 4,
             num_ranks: int = 13,
             num_actions: int = 4
