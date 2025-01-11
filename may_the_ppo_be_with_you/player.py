@@ -15,7 +15,7 @@ from skeleton.config import *
 import numpy as np
 
 import torch
-from models.network import SimpleNet
+from agents.model import SimpleNet
 
 NUM_PLAYERS = 2
 NUM_RANKS = 13
@@ -174,7 +174,7 @@ class Player(Bot):
         '''
 
         self.agent = SimpleNet()
-        state_dict = torch.load(f"models/baseline.pth", weights_only = False)
+        state_dict = torch.load(f"agents/baseline.pth", weights_only = False)
         self.agent.load_state_dict(state_dict)
 
         self.num_envs = 1
