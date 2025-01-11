@@ -111,6 +111,32 @@ def encode_chips(chips, big_blind = 2, max_stack = 400, log_bin_step = 1.5):
     feature_vector = np.array(one_hot + [log_stack, ratio_starting], dtype=np.float32)
     return feature_vector
 
+
+
+def print_poker_beliefs(belief):
+    tensor = torch.zeros((13, 13), device = belief.device)
+    cnt = torch.zeros((13, 13), device = belief.device)
+    for s0 in range(4):
+        for s1 in range(4):
+            for r0 in range(13):
+                for r1 in range(13):
+                    if s0 != s1:
+                        if r0 < r1:
+                            continue
+                        tensor[r0, r1] += belief[s0, s1, r0, r1]
+                        cnt[r0, r1] += 1
+                    else:
+                        if r0 >= r1:
+                            continue
+                        tensor[r0, r1] += belief[s0, s1, r0, r1]
+                        cnt[r0, r1] += 1
+
+    tensor /= cnt
+    tensor = tensor.detach().cpu().numpy()
+    for i, row in enumerate(tensor):
+        formatted_row = " ".join(f"{value:5.2f}" for value in row)
+        print(formatted_row)
+
 class Player(Bot):
     '''
     A pokerbot.
@@ -128,7 +154,7 @@ class Player(Bot):
         '''
 
         self.agent = SimpleNet()
-        state_dict = torch.load(f"models/model.pth", weights_only = False)
+        state_dict = torch.load(f"models/baseline_4500.pth", weights_only = False)
         self.agent.load_state_dict(state_dict)
 
         self.num_envs = 1
@@ -407,10 +433,11 @@ class Player(Bot):
                     for action, raise_target in zip(action_sequence, raise_target_sequence):
                         self.raise_target[i] = raise_target
 
-                        obs, current_players, legal_action_tensor = self.get_obs_tensor()
-                        action_tensor = torch.tensor([action])
-                        _, _, _, _, action_probs, _ = self.agent.get_logits_value(current_players, obs, legal_action_tensor, action_tensor)
-                        self.belief[i, active] *= action_probs[i, :, :, :, :, action]
+                        with torch.no_grad():
+                            obs, current_players, legal_action_tensor = self.get_obs_tensor()
+                            action_tensor = torch.tensor([action])
+                            _, _, _, _, action_probs, _ = self.agent.get_logits_value(current_players, obs, legal_action_tensor, action_tensor)
+                            self.belief[i, active] *= action_probs[i, :, :, :, :, action]
 
                         print(f"action {action}, raise target {raise_target}")
                     self.raise_target[i] = 0
@@ -428,16 +455,20 @@ class Player(Bot):
         Returns:
         Your action.
         '''
-        print("Tracing back ... ")
-        print("".join(["#" for _ in range(25)]))
+        if game_state.round_num < 100:
+            print("Tracing back ... ")
+            print("".join(["#" for _ in range(25)]))
+
         if round_state.previous_state is not None:
             self.traceback(round_state.previous_state, round_state.previous_action, active)
-        print("".join(["#" for _ in range(25)]))
-        print("Traceback done!")
-        print("")
-        print("Time to decide ...")
 
-        print(round_state)
+        if game_state.round_num < 100:
+            print("".join(["#" for _ in range(25)]))
+            print("Traceback done!")
+            print("")
+            print("Time to decide ...")
+
+            print(round_state)
         for i in range(self.num_envs):
             self.states[i] = round_state
 
@@ -454,12 +485,18 @@ class Player(Bot):
         my_contribution = STARTING_STACK - my_stack  # the number of chips you have contributed to the pot
         opp_contribution = STARTING_STACK - opp_stack  # the number of chips your opponent has contributed to the pot
 
+        if game_state.round_num < 100:
+            print("My range:")
+            print_poker_beliefs(self.belief[0, active])
+            print("Opponent range:")
+            print_poker_beliefs(self.belief[0, 1-active])
         for i in range(self.num_envs):
             agent_action = None
             while agent_action is None:
-                obs, current_players, legal_action_tensor = self.get_obs_tensor()
-                action, _, _, _, action_probs, _ = self.agent.get_logits_value(current_players, obs, legal_action_tensor)
-                self.belief[i, active] *= action_probs[i, :, :, :, :, action[i]]
+                with torch.no_grad():
+                    obs, current_players, legal_action_tensor = self.get_obs_tensor()
+                    action, _, _, _, action_probs, _ = self.agent.get_logits_value(current_players, obs, legal_action_tensor)
+                    self.belief[i, active] *= action_probs[i, :, :, :, :, action[i]]
 
                 if action == 0:  # Fold
                     agent_action = FoldAction()
@@ -492,7 +529,7 @@ class Player(Bot):
                         # "Stack" the raise
                         self.raise_target[i] = raise_max
 
-                print(action)
+                print(f"abstract action {action.item()}")
         return agent_action
 
 
