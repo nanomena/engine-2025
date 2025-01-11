@@ -3,6 +3,7 @@ import torch.nn as nn
 import numpy as np
 import torch.nn.functional as F
 
+
 def layer_init(layer, std = np.sqrt(2), bias_const = 0.0):
     """Simple orthogonal initialization helper for layers."""
     nn.init.orthogonal_(layer.weight, std)
@@ -95,8 +96,6 @@ class SimpleNet(nn.Module):
             )
             self.critic_heads.append(critic_head)
 
-        self.pair_embeddings_buffer = None
-
     def get_card_embedding(self, suit_idx, rank_idx):
         """Get card embedding as sum of suit and rank embeddings."""
         return self.suit_embeddings[suit_idx] + self.rank_embeddings[rank_idx]
@@ -145,10 +144,7 @@ class SimpleNet(nn.Module):
         belief shape: [B, 2, 4, 4, 13, 13]
         """
         B = belief.shape[0]
-        if self.training or self.pair_embeddings_buffer is None:
-            self.pair_embeddings_buffer = pair_embeddings = self.compute_pair_embeddings(device = belief.device)
-        else:
-            pair_embeddings = self.pair_embeddings_buffer
+        pair_embeddings = self.compute_pair_embeddings(device = belief.device)
 
         belief_features = []
         for player in range(2):
@@ -219,10 +215,7 @@ class SimpleNet(nn.Module):
         # 1. Get fused features
         fused = self.forward(belief, state_info, board, bounty)
 
-        if self.training or self.pair_embeddings_buffer is None:
-            self.pair_embeddings_buffer = pair_embeddings = self.compute_pair_embeddings(device = belief.device)
-        else:
-            pair_embeddings = self.pair_embeddings_buffer
+        pair_embeddings = self.compute_pair_embeddings(device = fused.device)
         flat_pair_emb = pair_embeddings.view(-1, self.embedding_dim)
 
         # Inner product for value
