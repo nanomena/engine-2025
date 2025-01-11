@@ -114,9 +114,13 @@ def encode_chips(chips, big_blind = 2, max_stack = 400, log_bin_step = 1.5):
 
 
 def print_poker_beliefs(belief):
+    # Device and tensors initialization
     device = belief.device
     tensor = torch.zeros((13, 13), device=device)
     cnt = torch.zeros((13, 13), device=device)
+
+    # Rank labels for output
+    rank_labels = [str(n) for n in range(2, 10)] + list('TJQKA')
 
     # Create indices for all possible combinations
     suits = torch.arange(4, device=device)
@@ -147,9 +151,10 @@ def print_poker_beliefs(belief):
     tensor = (tensor / cnt).detach().cpu().numpy()
 
     # Print formatted output
+    print('      ' + '     '.join(rank_labels))
     for i, row in enumerate(tensor):
         formatted_row = " ".join(f"{value:5.2f}" for value in row)
-        print(formatted_row)
+        print(f"{rank_labels[i]:<3} {formatted_row}")
 
     return tensor
 
@@ -180,6 +185,9 @@ class Player(Bot):
         self.belief = torch.zeros((self.num_envs, NUM_PLAYERS, NUM_SUITS, NUM_SUITS, NUM_RANKS, NUM_RANKS))
         self.bounties_masks = np.zeros((self.num_envs, NUM_PLAYERS, NUM_RANKS))
         self.raise_target = [0 for _ in range(self.num_envs)]
+
+        self.safe_mode = False
+        self.unsafe_mode = False
 
     def get_board_obs(self, env_id):
         round_state = self.states[env_id]
@@ -312,6 +320,18 @@ class Player(Bot):
         big_blind = bool(active)  # True if you are the big blind
         my_bounty = round_state.bounties[active]  # your current bounty rank
 
+        if my_bankroll > 3.15 * (NUM_ROUNDS - round_num) + 20:
+            self.safe_mode = True
+        else:
+            self.safe_mode = False
+
+        # if my_bankroll < -3 * (NUM_ROUNDS - round_num) - 100:
+        #     self.unsafe_mode = True
+        # else:
+        #     self.unsafe_mode = False
+
+        print(f"# # # # # # # Round {round_num}! # # # # # # # #")
+
         if round_num % ROUNDS_PER_BOUNTY == 1:
             for i in range(self.num_envs):
                 self.bounties_masks[i] = 1.
@@ -324,6 +344,11 @@ class Player(Bot):
             bounty_rank = cardNames.index(my_bounty)
             self.bounties[i][active] = np.array(encode_rank(bounty_rank))[:NUM_RANKS]
             self.bounties[i][1 - active] = self.bounties_masks[i][1 - active]
+
+        print("bounty mask:")
+        print(f"My revealed: {self.bounties_masks[0][active]}")
+        print(f"Opp revealed: {self.bounties_masks[0][1 - active]}")
+
         self.belief[:] = 1.
 
     def handle_round_over(self, game_state, terminal_state, active):
@@ -399,65 +424,67 @@ class Player(Bot):
         my_bounty = round_state.bounties[active]  # your current bounty rank
         my_contribution = STARTING_STACK - my_stack  # the number of chips you have contributed to the pot
         opp_contribution = STARTING_STACK - opp_stack  # the number of chips your opponent has contributed to the pot
-        if round_state.previous_state is not None and (active != traceback_active or action is None):
+        if active == traceback_active and action is not None:
+            return
+        if round_state.previous_state is not None:
             self.traceback(round_state.previous_state, round_state.previous_action, traceback_active)
-            if action is not None:
-                print(round_state)
-                print(f"Action: {str(action)}")
+        if action is not None:
+            print(round_state)
+            print(f"Action: {str(action)}")
 
-                for i in range(self.num_envs):
+            for i in range(self.num_envs):
 
-                    action_sequence = None
-                    raise_target_sequence = None
-                    if isinstance(action, FoldAction):
-                        action_sequence = [0]
-                        raise_target_sequence = [0]
-                    elif isinstance(action, CallAction):
-                        action_sequence = [1]
-                        raise_target_sequence = [0]
-                    elif isinstance(action, CheckAction):
-                        action_sequence = [2]
-                        raise_target_sequence = [0]
-                    else:
-                        actual_raise = action.amount
-                        action_sequence = [3]
-                        raise_target_sequence = [0]
+                action_sequence = None
+                raise_target_sequence = None
+                if isinstance(action, FoldAction):
+                    action_sequence = [0]
+                    raise_target_sequence = [0]
+                elif isinstance(action, CallAction):
+                    action_sequence = [1]
+                    raise_target_sequence = [0]
+                elif isinstance(action, CheckAction):
+                    action_sequence = [2]
+                    raise_target_sequence = [0]
+                else:
+                    actual_raise = action.amount
+                    action_sequence = [3]
+                    raise_target_sequence = [0]
 
-                        pre_cb = my_contribution - my_pip
-                        rb_min, rb_max = round_state.raise_bounds()  # e.g. [min_raise, max_raise]
+                    pre_cb = my_contribution - my_pip
+                    rb_min, rb_max = round_state.raise_bounds()  # e.g. [min_raise, max_raise]
 
-                        # For example:
-                        self.raise_target[i] = rb_min
-                        while action_sequence[-1] != 2:
-                            raise_target_sequence.append(self.raise_target[i])
+                    # For example:
+                    self.raise_target[i] = rb_min
+                    while action_sequence[-1] != 2:
+                        raise_target_sequence.append(self.raise_target[i])
 
-                            raise_25par = min(
-                                int(np.ceil(pre_cb * 0.5 + self.raise_target[i] * 1.25)),
-                                rb_max
-                            )
+                        raise_25par = min(
+                            int(np.ceil(pre_cb * 0.5 + self.raise_target[i] * 1.25)),
+                            rb_max
+                        )
 
-                            raise_min = self.raise_target[i]
-                            raise_max = max(raise_min + 1, raise_25par)  # handle all-in
-                            if actual_raise < raise_max:
-                                action_sequence.append(2)
-                                self.raise_target[i] = 0
-                            else:
-                                action_sequence.append(3)
-                                self.raise_target[i] = raise_max
+                        raise_min = self.raise_target[i]
+                        raise_max = max(raise_min + 1, raise_25par)  # handle all-in
+                        if actual_raise < raise_max:
+                            action_sequence.append(2)
+                            self.raise_target[i] = 0
+                        else:
+                            action_sequence.append(3)
+                            self.raise_target[i] = raise_max
 
-                    self.states[i] = round_state
-                    for action, raise_target in zip(action_sequence, raise_target_sequence):
-                        self.raise_target[i] = raise_target
+                self.states[i] = round_state
+                for action, raise_target in zip(action_sequence, raise_target_sequence):
+                    self.raise_target[i] = raise_target
 
-                        with torch.no_grad():
-                            obs, current_players, legal_action_tensor = self.get_obs_tensor()
-                            action_tensor = torch.tensor([action])
-                            _, _, _, _, action_probs, _ = self.agent.get_logits_value(current_players, obs, legal_action_tensor, action_tensor)
-                            self.belief[i, active] *= action_probs[i, :, :, :, :, action]
-                            self.belief[i, active] /= self.belief[i, active].max()
+                    with torch.no_grad():
+                        obs, current_players, legal_action_tensor = self.get_obs_tensor()
+                        action_tensor = torch.tensor([action])
+                        _, _, _, _, action_probs, _ = self.agent.get_logits_value(current_players, obs, legal_action_tensor, action_tensor)
+                        self.belief[i, active] *= action_probs[i, :, :, :, :, action]
+                        self.belief[i, active] /= self.belief[i, active].max()
 
-                    print(f"action {action}, raise target {raise_target}")
-                    self.raise_target[i] = 0
+                print(f"action {action}, raise target {raise_target}")
+                self.raise_target[i] = 0
 
     def get_action(self, game_state, round_state, active):
         '''
@@ -502,8 +529,8 @@ class Player(Bot):
         my_contribution = STARTING_STACK - my_stack  # the number of chips you have contributed to the pot
         opp_contribution = STARTING_STACK - opp_stack  # the number of chips your opponent has contributed to the pot
 
+        agent_action = None
         for i in range(self.num_envs):
-            agent_action = None
             while agent_action is None:
                 with torch.no_grad():
                     obs, current_players, legal_action_tensor = self.get_obs_tensor()
@@ -557,6 +584,12 @@ class Player(Bot):
                     else:
                         # "Stack" the raise
                         self.raise_target[i] = raise_max
+
+        if self.safe_mode:
+            agent_action = FoldAction()
+        elif self.unsafe_mode:
+            if opp_contribution <= 10 and isinstance(agent_action, FoldAction):
+                agent_action = RaiseAction(round_state.raise_bounds()[0])
 
         print(f"final decision {agent_action}")
         return agent_action
