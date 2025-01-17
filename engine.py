@@ -162,7 +162,7 @@ class RoundState(namedtuple('_RoundState', ['button', 'street', 'pips', 'stacks'
         if continue_cost == 0:
             # we can only raise the stakes if both players can afford it
             bets_forbidden = (self.stacks[0] == 0 or self.stacks[1] == 0)
-            return {CheckAction} if bets_forbidden else {CheckAction, RaiseAction}
+            return {CheckAction, FoldAction} if bets_forbidden else {CheckAction, RaiseAction, FoldAction}
         # continue_cost > 0
         # similarly, re-raising is only allowed if both players can afford it
         raises_forbidden = (continue_cost == self.stacks[active] or self.stacks[1-active] == 0)
@@ -488,7 +488,7 @@ class Game():
         Incorporates TerminalState information into the game log and player messages.
         '''
         previous_state = round_state.previous_state
-        if FoldAction not in previous_state.legal_actions():
+        if not self.log[-1].endswith(' folds'):
             self.log.append('{} shows {}'.format(players[0].name, PCARDS(previous_state.hands[0])))
             self.log.append('{} shows {}'.format(players[1].name, PCARDS(previous_state.hands[1])))
             self.player_messages[0].append('O' + CCARDS(previous_state.hands[1]))
