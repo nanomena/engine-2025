@@ -580,4 +580,8 @@ class Game():
 
 
 if __name__ == '__main__':
+    # FIX SEEDS!
+    random.seed(0)
+
+
     Game().run()
