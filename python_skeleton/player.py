@@ -131,4 +131,5 @@ class Player(Bot):
 
 
 if __name__ == '__main__':
+    random.seed(0)
     run_bot(Player(), parse_args())
